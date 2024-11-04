@@ -1,7 +1,7 @@
-package org.cs474.hw2
+package org.cs476.hw2
 
+import org.cs476.hw2.utils.CreateLogger
 import org.slf4j.Logger
-import org.cs474.hw2.utils.CreateLogger
 
 import scala.collection.mutable
 
@@ -14,32 +14,19 @@ object FuzzyMath:
   private val scopeRegistry: mutable.Map[String, FuzzyScope] = mutable.Map.empty
 
   // Class Registry to store class definitions
-  private val classRegistry: mutable.Map[String, mutable.Map[String, Any]] = mutable.Map.empty
+  val classRegistry: mutable.Map[String, mutable.Map[String, Any]] = mutable.Map.empty
 
   // Access control registry to keep track of Private, Protected, and Public access levels
-  private val accessControlRegistry: mutable.Map[String, mutable.Map[String, mutable.Map[String, mutable.Set[String]]]] = mutable.Map.empty
+  val accessControlRegistry: mutable.Map[String, mutable.Map[String, mutable.Map[String, mutable.Set[String]]]] = mutable.Map.empty
 
   // Instance registry to store instantiated objects
-  private val instanceRegistry: mutable.Map[String, mutable.Map[String, Any]] = mutable.Map.empty
+  val instanceRegistry: mutable.Map[String, mutable.Map[String, Any]] = mutable.Map.empty
 
   // Virtual Dispatch Table for maintaining methods for inherited classes.
-  private val virtualDispatchTable: mutable.Map[String, mutable.Map[String, Method]] = mutable.Map()
+  val virtualDispatchTable: mutable.Map[String, mutable.Map[String, Method]] = mutable.Map()
 
   // Registry to store macros
-  private val macroRegistry: mutable.Map[String, (List[String], FuzzyExp)] = mutable.Map.empty
-
-
-//  // Class Registry to store class definitions
-//  private val classRegistry: mutable.Map[String, ClassDef] = mutable.Map.empty
-//
-//  // Access control registry to keep track of Private, Protected, and Public access levels
-//  private val accessControlRegistry: mutable.Map[Any, Any] = mutable.Map.empty
-//
-//  // Instance registry to store instantiated objects
-//  private val instanceRegistry: mutable.Map[Any, Any] = mutable.Map.empty
-//
-//  // Virtual Dispatch Table for maintaining methods for inherited classes.
-//  private val virtualDispatchTable: scala.collection.mutable.Map[Any, Any] = mutable.Map.empty
+  val macroRegistry: mutable.Map[String, (List[String], FuzzyExp)] = mutable.Map.empty
 
   // Provide a method to get the global scope
   def getGlobalScope: FuzzyScope = globalScope
@@ -165,14 +152,11 @@ object FuzzyMath:
         if classRegistry.contains(name) then
           throw new Exception(s"Class '$name' already defined")
 
-        // Ensure abstract methods are not marked as final
         abstractMethods.foreach {
           case AbstractMethod(name) if concreteMethods.exists(_.m_name == name) =>
             throw new Exception(s"Method '$name' cannot be both final and abstract")
           case _ =>
         }
-
-        // Register the abstract class and store abstract methods
         val abstractMethodNames = abstractMethods.map(_.name)
         val fieldMap = fields.map(f => f.f_name -> null).to(mutable.Map)
         val methodMap = concreteMethods.map(m => m.m_name -> m).to(mutable.Map)
@@ -180,9 +164,16 @@ object FuzzyMath:
         classRegistry(name) = mutable.Map(
           "fields" -> fieldMap,
           "methods" -> methodMap,
-          "abstract" -> true,  // Indicate that this is an abstract class
+          "abstract" -> true,
           "abstractMethods" -> abstractMethodNames,
           "constructor" -> constructor
+        )
+
+        // Initialize access control for abstract class
+        accessControlRegistry(name) = mutable.Map(
+          "private" -> mutable.Map("fields" -> mutable.Set[String](), "methods" -> mutable.Set[String]()),
+          "public" -> mutable.Map("fields" -> mutable.Set[String](), "methods" -> mutable.Set[String]()),
+          "protected" -> mutable.Map("fields" -> mutable.Set[String](), "methods" -> mutable.Set[String]())
         )
 
         logger.info(s"Defined abstract class '$name' with abstract methods: ${abstractMethodNames.mkString(", ")}")
@@ -197,16 +188,33 @@ object FuzzyMath:
             "constructor" -> constructor,
             "methods" -> methods.map(m => m.m_name -> m).to(mutable.Map),
             "inheritance" -> false,
-            "abstractDef" -> false
+            "abstract" -> false
           )
 
-          // Handle inheritance
+          // Handle inheritance and check if parent is abstract
           parent.foreach { parentClassDef =>
-              val parentName = parentClassDef.name
-              val parentClassMap = classRegistry.getOrElse(parentName, throw new Exception(s"Parent class '$parentName' not found"))
-              tempClassMap("inheritance") = true
-              tempClassMap("fields").asInstanceOf[mutable.Map[String, Any]] ++= parentClassMap("fields").asInstanceOf[mutable.Map[String, Any]]
-              tempClassMap("methods").asInstanceOf[mutable.Map[String, Method]] ++= parentClassMap("methods").asInstanceOf[mutable.Map[String, Method]]
+            parentClassDef match {
+              case abstractClass: AbstractClassDef =>
+                // Handle abstract class parent by enforcing abstract method implementation
+                val abstractMethods = abstractClass.abstractMethods.map(_.name)
+                abstractMethods.foreach { methodName =>
+                  if (!methods.exists(_.m_name == methodName)) {
+                    throw new Exception(s"Class '$name' must implement abstract method '$methodName' from abstract class '${abstractClass.name}'")
+                  }
+                }
+
+                // Copy fields and methods from abstract class
+                tempClassMap("fields").asInstanceOf[mutable.Map[String, Any]] ++= abstractClass.fields.map(f => f.f_name -> null).toMap
+                tempClassMap("methods").asInstanceOf[mutable.Map[String, Method]] ++= abstractClass.concreteMethods.map(m => m.m_name -> m).toMap
+
+              case concreteClass: ClassDef =>
+                // Handle concrete class parent (existing logic)
+                tempClassMap("fields").asInstanceOf[mutable.Map[String, Any]] ++= concreteClass.fields.map(f => f.f_name -> null).toMap
+                tempClassMap("methods").asInstanceOf[mutable.Map[String, Method]] ++= concreteClass.methods.map(m => m.m_name -> m).toMap
+
+              case _ =>
+                throw new Exception("Invalid parent class type")
+            }
           }
 
           classRegistry(name) = tempClassMap
@@ -216,12 +224,11 @@ object FuzzyMath:
             "private" -> mutable.Map("fields" -> mutable.Set[String](), "methods" -> mutable.Set[String]()),
             "public" -> mutable.Map("fields" -> mutable.Set[String](), "methods" -> mutable.Set[String]()),
             "protected" -> mutable.Map("fields" -> mutable.Set[String](), "methods" -> mutable.Set[String]())
-            )
+          )
 
           logger.info(s"Defined class '$name'")
           Map.empty[String, Double] // Return empty FuzzySet
 
-      // Implementing Public access modifier
       case Public(className, fieldNameList, methodNameList) =>
         if !accessControlRegistry.contains(className) then
           throw new Exception(s"Access control data for class '$className' not found")
@@ -234,7 +241,6 @@ object FuzzyMath:
           logger.info(s"Updated public access for class '$className'")
           Map.empty[String, Double]
 
-      // Implementing Private access modifier
       case Private(className, fieldNameList, methodNameList) =>
         if !accessControlRegistry.contains(className) then
           throw new Exception(s"Access control data for class '$className' not found")
@@ -247,7 +253,6 @@ object FuzzyMath:
           logger.info(s"Updated private access for class '$className'")
           Map.empty[String, Double]
 
-      // Implementing Protected access modifier
       case Protected(className, fieldNameList, methodNameList) =>
         if !accessControlRegistry.contains(className) then
           throw new Exception(s"Access control data for class '$className' not found")
@@ -260,122 +265,86 @@ object FuzzyMath:
           logger.info(s"Updated protected access for class '$className'")
           Map.empty[String, Double]
 
-
-
       case Instantiate(varName, className, args) =>
         if !classRegistry.contains(className) then
           throw new Exception(s"Class '$className' not found")
-        else
-          // Generate a unique instance name
-          val instanceName = s"${className}_instance_${instanceRegistry.size}"
+        if classRegistry(className).getOrElse("abstract", false).asInstanceOf[Boolean] then
+          throw new Exception(s"Cannot instantiate abstract class '$className'")
 
-          // Create a map for the instance to store class name, fields, and methods
-          val tempNewObjectMap = mutable.Map[String, Any]()
-          tempNewObjectMap += ("className" -> className)
+        val instanceName = s"${className}_instance_${instanceRegistry.size}"
+        val tempNewObjectMap = mutable.Map[String, Any]("className" -> className)
+        val classObject = classRegistry(className)
+        val classFields = classObject("fields").asInstanceOf[mutable.Map[String, Any]].clone()
+        val classMethods = classObject("methods").asInstanceOf[mutable.Map[String, Method]]
 
-          // Extract class object from classRegistry
-          val classObject = classRegistry(className)
+        tempNewObjectMap += ("fields" -> classFields)
+        tempNewObjectMap += ("methods" -> classMethods)
+        instanceRegistry(instanceName) = tempNewObjectMap
 
-          // Extract fields of the class
-          val classFields = classObject("fields").asInstanceOf[mutable.Map[String, Any]].clone()
+        val constructor = classObject("constructor").asInstanceOf[Constructor]
+        val constructorScope = new FuzzyScope(s"${className}_constructor", Some(currentScope))
+        classFields.foreach { case (k, v) => constructorScope.createBinding(k, v) }
+        args.foreach { case (k, vExp) => constructorScope.createBinding(k, vExp.evalInScope(currentScope)) }
 
-          // Extract methods of the class
-          val classMethods = classObject("methods").asInstanceOf[mutable.Map[String, Method]]
+        constructor.exp.foreach { exp => exp.evalInScope(constructorScope) }
+        classFields.keys.foreach { k => classFields(k) = constructorScope.searchBinding(k).getOrElse(classFields(k)) }
+        currentScope.createBinding(varName, instanceName)
 
-          // Create a copy of the fields and methods in the instance
-          tempNewObjectMap += ("fields" -> classFields)
-          tempNewObjectMap += ("methods" -> classMethods)
+        logger.info(s"Created instance '$instanceName' of class '$className'")
+        Map.empty[String, Double]
 
-          // Bind the instance name to the instance map
-          instanceRegistry(instanceName) = tempNewObjectMap
-
-          // Execute constructor
-          val constructor = classObject("constructor").asInstanceOf[Constructor]
-          val constructorScope = new FuzzyScope(s"${className}_constructor", Some(currentScope))
-
-          // Set fields in constructor scope
-          classFields.foreach { case (k, v) =>
-            constructorScope.createBinding(k, v)
-          }
-
-          // Evaluate arguments and store them in the constructor scope
-          args.foreach { case (k, vExp) =>
-            val value = vExp.evalInScope(currentScope)
-            constructorScope.createBinding(k, value)
-          }
-
-          // Execute constructor expressions
-          constructor.exp.foreach { exp =>
-            exp.evalInScope(constructorScope)
-          }
-
-          // Update instance fields after constructor execution
-          classFields.keys.foreach { k =>
-            classFields(k) = constructorScope.searchBinding(k).getOrElse(classFields(k))
-          }
-          currentScope.createBinding(varName, instanceName)
-
-          logger.info(s"Created instance '$instanceName' of class '$className'")
-          Map.empty[String, Double]
-
-      // Implementing MethodInvocation
       case MethodInvocation(instanceVar, methodName, arguments) =>
-        // Evaluate the instance expression to get the instance name
         val instanceName = instanceVar match
-          case Var(name) =>
-            currentScope.searchBinding(name) match
-              case Some(value: String) => value
-              case _ => throw new Exception(s"Variable '$name' does not contain a valid instance")
+          case Var(name) => currentScope.searchBinding(name) match
+            case Some(value: String) => value
+            case _ => throw new Exception(s"Variable '$name' does not contain a valid instance")
           case _ => throw new Exception("Invalid instance for method invocation")
 
         if !instanceRegistry.contains(instanceName) then
           throw new Exception(s"Instance '$instanceName' not found")
-        else
-          val instanceData = instanceRegistry(instanceName)
 
-          // Check if method exists
-          val methods = instanceData("methods").asInstanceOf[mutable.Map[String, Method]]
+        val instanceData = instanceRegistry(instanceName)
+        val className = instanceData("className").asInstanceOf[String]
 
-          // Check Virtual Dispatch Table for overridden methods
-          val className = instanceData("className").asInstanceOf[String]
-          val methodToInvoke = if virtualDispatchTable.contains(className) && virtualDispatchTable(className).contains(methodName) then
-            virtualDispatchTable(className)(methodName)
-          else if methods.contains(methodName) then
-            methods(methodName)
-          else
-            throw new Exception(s"Method '$methodName' not found in class '$className'")
+        // Check access control for the method
+        val accessData = accessControlRegistry.getOrElse(className, throw new Exception(s"Access control data for class '$className' not found"))
+        val isPublic = accessData("public")("methods").contains(methodName)
+        val isPrivate = accessData("private")("methods").contains(methodName)
+        val isProtected = accessData("protected")("methods").contains(methodName)
 
-          val method = methodToInvoke
+        // If the method is private, it should not be accessible outside its defining class
+        if isPrivate then throw new Exception(s"Method '$methodName' is private and cannot be accessed")
 
-          // Create a new scope for method execution
-          val methodScope = new FuzzyScope(s"${className}_$methodName", Some(currentScope))
+        // Access the method from either the virtual dispatch table or instance's methods
+        val methods = instanceData("methods").asInstanceOf[mutable.Map[String, Method]]
+        val methodToInvoke = virtualDispatchTable.getOrElse(className, methods).getOrElse(
+          methodName,
+          throw new Exception(s"Method '$methodName' not found in class '$className'")
+        )
 
-          // Set method arguments in scope
-          method.args.foreach {
-            case Assign(argName, _) =>
-              val argValueExp = arguments.getOrElse(argName, throw new Exception(s"Argument '$argName' not provided"))
-              val argValue = argValueExp.evalInScope(currentScope)
-              methodScope.createBinding(argName, argValue)
-          }
+        val methodScope = new FuzzyScope(s"${className}_$methodName", Some(currentScope))
 
-          // Set instance fields in scope
-          val instanceFields = instanceData("fields").asInstanceOf[mutable.Map[String, Any]]
-          instanceFields.foreach { case (k, v) =>
-            methodScope.createBinding(k, v)
-          }
+        // Set method arguments in scope
+        methodToInvoke.args.foreach {
+          case Assign(argName, _) =>
+            val argValueExp = arguments.getOrElse(argName, throw new Exception(s"Argument '$argName' not provided"))
+            val argValue = argValueExp.evalInScope(currentScope)
+            methodScope.createBinding(argName, argValue)
+        }
 
-          // Execute method body
-          method.exp.foreach { exp =>
-            exp.evalInScope(methodScope)
-          }
+        // Set instance fields in scope
+        val instanceFields = instanceData("fields").asInstanceOf[mutable.Map[String, Any]]
+        instanceFields.foreach { case (k, v) =>
+          methodScope.createBinding(k, v)
+        }
 
-          // Update instance fields after method execution
-          instanceFields.keys.foreach { k =>
-            instanceFields(k) = methodScope.searchBinding(k).getOrElse(instanceFields(k))
-          }
+        // Execute method body and capture the result of the last expression
+        val result = methodToInvoke.exp.map(_.evalInScope(methodScope)).lastOption.getOrElse(Map.empty[String, Double])
 
-          logger.info(s"Invoked method '$methodName' on instance '$instanceName'")
-          Map.empty[String, Double]
+        // Update instance fields after method execution
+        instanceFields.keys.foreach { k =>
+          instanceFields(k) = methodScope.searchBinding(k).getOrElse(instanceFields(k))
+        }
 
-      case _ =>
-        throw new Exception(s"Unhandled case: $exp")
+        logger.info(s"Invoked method '$methodName' on instance '$instanceName' with result: $result")
+        result

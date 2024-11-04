@@ -1,4 +1,4 @@
-package org.cs474.hw2
+package org.cs476.hw2
 
 enum FuzzyExp:
   case Value(i: Map[String, Double])
@@ -24,7 +24,7 @@ enum FuzzyExp:
                  fields: List[Field],
                  methods: List[Method],
                  constructor: Constructor,
-                 parent: Option[FuzzyExp.ClassDef]
+                 parent: Option[FuzzyExp]
                )
   case Instantiate(varName: String, className: String, args: Map[String, FuzzyExp])
   case MethodInvocation(instanceVar: Var, methodName: String, arguments: Map[String, FuzzyExp])

@@ -1,12 +1,18 @@
-package org.cs474.hw2
+package org.cs476.hw2
 
-import org.cs474.hw2.FuzzyExp._
-import org.cs474.hw2.FuzzyMath._
+import FuzzyExp._
+import FuzzyMath._
 
 object Main:
 
-  private def defineClass(name: String, fields: List[Field], methods: List[Method], constructor: Constructor, parent: Option[ClassDef] = None): ClassDef =
-    val classDef = ClassDef(name, fields, methods, constructor, parent)
+  private def defineClass(
+                           name: String,
+                           fields: List[Field],
+                           methods: List[Method],
+                           constructor: Constructor,
+                           parent: Option[FuzzyExp] = None
+                         ): ClassDef =
+    val classDef = ClassDef(name, fields, methods, constructor, parent.collect { case p: ClassDef => p })
     classDef.eval()
     Public(name, fields.map(_.f_name), methods.map(_.m_name)).eval()
     classDef.asInstanceOf[ClassDef]
@@ -17,6 +23,18 @@ object Main:
 
   private def invokeMethod(instanceVar: Var, methodName: String, arguments: Map[String, Value]): Unit =
     MethodInvocation(instanceVar, methodName, arguments).eval()
+
+  private def defineAbstractClass(
+                                   name: String,
+                                   fields: List[Field],
+                                   concreteMethods: List[Method],
+                                   abstractMethods: List[AbstractMethod],
+                                   constructor: Constructor
+                                 ): AbstractClassDef =
+    val abstractClassDef = AbstractClassDef(name, fields, concreteMethods, abstractMethods, constructor)
+    abstractClassDef.eval()
+    Public(name, fields.map(_.f_name), concreteMethods.map(_.m_name)).eval()
+    abstractClassDef.asInstanceOf[AbstractClassDef]
 
   @main def runExample(): Unit =
     val pointClass = defineClass(
@@ -115,22 +133,56 @@ object Main:
     val fields = FuzzyMath.getInstanceFields("cp", FuzzyMath.getGlobalScope)
     println(s"Fields of 'cp': $fields")
 
-  @main def runMacroExample(): Unit =
-    val scaleMacro = MacroDef(
-      name = "scale",
-      params = List("factor", "input"),
-      body = Block(List(
-        Assign("scaled_a", Value(Map("a" -> 0.5 * 2.0))),
-        Assign("scaled_b", Value(Map("b" -> 0.8 * 2.0))),
-        Union(Var("scaled_a"), Var("scaled_b"))
-      ))
+  @main def runAbstractClassExample(): Unit =
+    // Define an abstract class 'Shape' with an abstract method 'area'
+    val shapeClass = defineAbstractClass(
+      name = "Shape",
+      fields = List(Field("x"), Field("y")),
+      concreteMethods = List(),
+      abstractMethods = List(
+        AbstractMethod("area")
+      ),
+      constructor = Constructor(
+        exp = List(
+          Assign("x", Var("x_init")),
+          Assign("y", Var("y_init"))
+        )
+      )
     )
-    scaleMacro.eval()
 
-    val scaledSet = MacroInvoke(
-      name = "scale",
-      args = List(Value(Map("" -> 2.0)), Value(Map("a" -> 0.5, "b" -> 0.8)))
+    // Define a concrete class 'Circle' that extends 'Shape' and implements 'area'
+    val circleClass = defineClass(
+      name = "Circle",
+      fields = List(Field("radius")),
+      methods = List(
+        Method(
+          m_name = "area",
+          args = List(),
+          exp = List(
+            Assign("area", Multiplication(Value(Map("pi" -> 3.14159)), Multiplication(Var("radius"), Var("radius"))))
+          )
+        )
+      ),
+      constructor = Constructor(
+        exp = List(
+          Assign("x", Var("x_init")),
+          Assign("y", Var("y_init")),
+          Assign("radius", Var("radius_init"))
+        )
+      ),
+      parent = Some(shapeClass) // No casting needed here
     )
-    val result = scaledSet.eval()
 
-    println(result) // Expected output: {"a" -> 1.0, "b" -> 1.6}
+    // Instantiate a 'Circle' object
+    instantiateClass("c", "Circle", Map(
+      "x_init" -> Value(Map("" -> 0.0)),
+      "y_init" -> Value(Map("" -> 0.0)),
+      "radius_init" -> Value(Map("" -> 5.0))
+    ))
+
+    // Invoke the 'area' method on the instance 'c'
+    invokeMethod(Var("c"), "area", Map())
+
+    // Access and print the updated fields
+    val fields = FuzzyMath.getInstanceFields("c", FuzzyMath.getGlobalScope)
+    println(s"Fields of 'c': $fields")

@@ -1,9 +1,7 @@
-package org.cs474.hw2
-
-import org.cs474.hw2.utils.CreateLogger
+package org.cs476.hw2
 
 import scala.collection.mutable
-import org.cs474.hw2.utils.CreateLogger
+import org.cs476.hw2.utils.CreateLogger
 import org.slf4j.Logger
 
 class FuzzyScope(

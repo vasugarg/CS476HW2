@@ -1,4 +1,4 @@
-package org.cs474.hw2.utils
+package org.cs476.hw2.utils
 
 import org.slf4j.{Logger, LoggerFactory}
 
